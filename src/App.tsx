@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Play, Pause, Upload, Wand2, Download, Music, Video, Sparkles, Settings, Loader2, FileAudio, CheckCircle2, Film, User as UserIcon, Palette, Copy, Check, X, ArrowLeft, Plus } from 'lucide-react';
+import { Play, Pause, Upload, Wand2, Download, Music, Video, Sparkles, Settings, Loader2, FileAudio, CheckCircle2, Film, User as UserIcon, Palette, Copy, Check, X, ArrowLeft } from 'lucide-react';
 import WaveSurfer from 'wavesurfer.js';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -124,15 +124,10 @@ export default function App() {
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   
-  // Workflow State - Initialize from localStorage if available
-  const [currentStep, setCurrentStep] = useState<GenerationStep>(() => {
-    const saved = localStorage.getItem('ai_director_step');
-    return (saved as GenerationStep) || 'upload';
-  });
+  // Workflow State
+  const [currentStep, setCurrentStep] = useState<GenerationStep>('upload');
   const [directors, setDirectors] = useState(DIRECTORS);
-  const [selectedDirector, setSelectedDirector] = useState(() => {
-    return localStorage.getItem('ai_director_selected_director') || DIRECTORS[0].id;
-  });
+  const [selectedDirector, setSelectedDirector] = useState(DIRECTORS[0].id);
   const [isGeneratingStyle, setIsGeneratingStyle] = useState(false);
   const [audioFile, setAudioFile] = useState<File | null>(null);
   const [referenceImages, setReferenceImages] = useState<string[]>([]);
@@ -141,21 +136,15 @@ export default function App() {
   const [statusMessage, setStatusMessage] = useState('');
   
   // New AI Inputs
-  const [songDescription, setSongDescription] = useState(() => localStorage.getItem('ai_director_song_desc') || '');
-  const [videoConcept, setVideoConcept] = useState(() => localStorage.getItem('ai_director_video_concept') || '');
-  const [numCharacters, setNumCharacters] = useState(() => Number(localStorage.getItem('ai_director_num_chars')) || 1);
-  const [videoType, setVideoType] = useState(() => localStorage.getItem('ai_director_video_type') || 'narrative');
-  const [aspectRatio, setAspectRatio] = useState(() => localStorage.getItem('ai_director_aspect_ratio') || '16:9');
-  const [manualDuration, setManualDuration] = useState<string>(() => localStorage.getItem('ai_director_manual_dur') || '');
+  const [songDescription, setSongDescription] = useState('');
+  const [videoConcept, setVideoConcept] = useState('');
+  const [numCharacters, setNumCharacters] = useState(1);
+  const [videoType, setVideoType] = useState('narrative');
+  const [aspectRatio, setAspectRatio] = useState('16:9');
+  const [manualDuration, setManualDuration] = useState<string>('');
 
-  const [clips, setClips] = useState<Clip[]>(() => {
-    const saved = localStorage.getItem('ai_director_clips');
-    return saved ? JSON.parse(saved) : [];
-  });
-  const [creativeBrief, setCreativeBrief] = useState<CreativeBrief | null>(() => {
-    const saved = localStorage.getItem('ai_director_brief');
-    return saved ? JSON.parse(saved) : null;
-  });
+  const [clips, setClips] = useState<Clip[]>([]);
+  const [creativeBrief, setCreativeBrief] = useState<CreativeBrief | null>(null);
 
   const waveformRef = useRef<HTMLDivElement>(null);
   const wavesurferRef = useRef<WaveSurfer | null>(null);
@@ -209,20 +198,6 @@ export default function App() {
       }
     };
   }, [currentStep, audioFile]);
-
-  // Persistent Storage Effect
-  useEffect(() => {
-    localStorage.setItem('ai_director_step', currentStep);
-    localStorage.setItem('ai_director_selected_director', selectedDirector);
-    localStorage.setItem('ai_director_song_desc', songDescription);
-    localStorage.setItem('ai_director_video_concept', videoConcept);
-    localStorage.setItem('ai_director_num_chars', numCharacters.toString());
-    localStorage.setItem('ai_director_video_type', videoType);
-    localStorage.setItem('ai_director_aspect_ratio', aspectRatio);
-    localStorage.setItem('ai_director_manual_dur', manualDuration);
-    localStorage.setItem('ai_director_clips', JSON.stringify(clips));
-    localStorage.setItem('ai_director_brief', JSON.stringify(creativeBrief));
-  }, [currentStep, selectedDirector, songDescription, videoConcept, numCharacters, videoType, aspectRatio, manualDuration, clips, creativeBrief]);
 
   // Auth Listener
   useEffect(() => {
@@ -826,19 +801,6 @@ export default function App() {
               >
                 My Projects
               </button>
-              <button 
-                onClick={() => {
-                  if (confirm('¿Estás seguro de que quieres empezar un nuevo proyecto? Serás redirigido al principio de la aplicación y se borrará el progreso actual que no hayas guardado en Firebase.')) {
-                    localStorage.clear();
-                    window.location.reload();
-                  }
-                }}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-red-900/30 hover:bg-red-800/50 border border-red-700/50 rounded-full text-red-200 text-xs font-medium transition-all"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                Nuevo Proyecto
-              </button>
-              <div className="h-4 w-px bg-gray-700 mx-1"></div>
               
               {currentStep === 'complete' && (
                 <button 
@@ -887,119 +849,91 @@ export default function App() {
         {/* Projects View */}
         {currentStep === 'projects' && (
           <div className="absolute inset-0 z-50 bg-[#0a0a0a] flex flex-col p-8 overflow-y-auto">
-            <div className="max-w-6xl mx-auto w-full space-y-10">
-              <div className="flex flex-col md:flex-row md:items-end justify-between border-b border-[#27272a] pb-8 gap-6">
-                <div className="space-y-4">
-                  <div className="flex items-center gap-4">
-                    <button onClick={() => setCurrentStep('upload')} className="p-2 hover:bg-[#1f1f1f] rounded-lg transition-colors group">
-                      <X className="w-6 h-6 text-gray-400 group-hover:text-white" />
-                    </button>
-                    <h2 className="text-4xl font-black text-white tracking-tighter uppercase">Mis Producciones</h2>
-                  </div>
-                  <p className="text-gray-500 max-w-xl text-sm">
-                    Gestiona y carga todos tus storyboards y conceptos creativos generados con la inteligencia artificial de thefirm media studios.
-                  </p>
-                </div>
-                <div className="flex items-center gap-3">
-                  <button 
-                    onClick={() => setCurrentStep('upload')}
-                    className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-bold rounded-lg transition-all shadow-lg shadow-indigo-500/20 flex items-center gap-2"
-                  >
-                    <Plus className="w-4 h-4" />
-                    Nuevo Proyecto
+            <div className="max-w-5xl mx-auto w-full space-y-8">
+              <div className="flex items-center justify-between border-b border-[#27272a] pb-6">
+                <div className="flex items-center gap-4">
+                  <button onClick={() => setCurrentStep('upload')} className="p-2 hover:bg-[#1f1f1f] rounded-lg transition-colors">
+                    <X className="w-6 h-6 text-gray-400" />
                   </button>
+                  <h2 className="text-3xl font-bold text-white">My Storyboards</h2>
                 </div>
+                <button 
+                  onClick={() => setCurrentStep('upload')}
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium rounded-lg transition-colors"
+                >
+                  New Project
+                </button>
               </div>
 
               {isLoadingProjects ? (
-                <div className="flex flex-col items-center justify-center py-32 space-y-6">
-                  <div className="relative">
-                    <Loader2 className="w-12 h-12 text-indigo-500 animate-spin" />
-                    <div className="absolute inset-0 blur-xl bg-indigo-500/20 animate-pulse" />
-                  </div>
-                  <p className="text-gray-400 font-medium animate-pulse">Sincronizando con la nube...</p>
+                <div className="flex flex-col items-center justify-center py-20 space-y-4">
+                  <Loader2 className="w-10 h-10 text-indigo-500 animate-spin" />
+                  <p className="text-gray-400">Loading your projects...</p>
                 </div>
               ) : projects.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-32 space-y-8 text-center bg-[#111111]/50 rounded-3xl border border-[#27272a] border-dashed">
-                  <div className="w-24 h-24 bg-[#141414] rounded-full flex items-center justify-center border border-[#27272a] shadow-inner">
-                    <Film className="w-10 h-10 text-gray-700" />
+                <div className="flex flex-col items-center justify-center py-20 space-y-6 text-center">
+                  <div className="w-20 h-20 bg-[#141414] rounded-full flex items-center justify-center border border-[#27272a]">
+                    <Film className="w-10 h-10 text-gray-600" />
                   </div>
-                  <div className="space-y-3">
-                    <h3 className="text-2xl font-bold text-white uppercase tracking-tight">No hay proyectos todavía</h3>
-                    <p className="text-gray-500 max-w-xs mx-auto text-sm leading-relaxed">
-                      Sube tu primer track o describe tu visión para empezar a construir tu biblioteca visual.
-                    </p>
+                  <div className="space-y-2">
+                    <h3 className="text-xl font-medium text-white">No projects found</h3>
+                    <p className="text-gray-500 max-w-xs">Start your first AI-driven storyboard to see it here.</p>
                   </div>
                   <button 
                     onClick={() => setCurrentStep('upload')}
-                    className="px-8 py-3 bg-white text-black hover:bg-gray-200 text-sm font-black uppercase rounded-full transition-all"
+                    className="px-6 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium rounded-lg transition-colors"
                   >
-                    Empezar Ahora
+                    Create Storyboard
                   </button>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                   {projects.map((project) => (
                     <div 
                       key={project.id}
-                      className="group bg-[#141414] border border-[#27272a] rounded-2xl overflow-hidden hover:border-indigo-500/50 hover:shadow-2xl hover:shadow-indigo-500/10 transition-all duration-300 flex flex-col relative"
+                      className="group bg-[#141414] border border-[#27272a] rounded-xl overflow-hidden hover:border-indigo-500/50 transition-all duration-300 flex flex-col"
                     >
                       <div className="aspect-video bg-black relative overflow-hidden">
                         <img 
-                          src={project.clips[0]?.imageUrl || 'https://picsum.photos/seed/' + project.id + '/800/450'} 
+                          src={project.clips[0]?.imageUrl || 'https://picsum.photos/seed/placeholder/800/450'} 
                           alt="" 
-                          className="w-full h-full object-cover opacity-60 group-hover:scale-110 group-hover:opacity-80 transition-all duration-700"
+                          className="w-full h-full object-cover opacity-60 group-hover:scale-105 transition-transform duration-500"
                           referrerPolicy="no-referrer"
                         />
-                        <div className="absolute inset-0 bg-gradient-to-t from-[#141414] via-transparent to-black/30" />
-                        
-                        <div className="absolute top-3 left-3">
-                           <span className="px-2 py-1 text-[9px] font-black bg-indigo-600 text-white rounded border border-indigo-400/30 uppercase tracking-widest">
-                             {project.videoType}
-                           </span>
-                        </div>
-
+                        <div className="absolute inset-0 bg-gradient-to-t from-[#141414] to-transparent" />
                         <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between">
-                          <div className="flex items-center gap-1.5">
-                            <Film className="w-3 h-3 text-indigo-400" />
-                            <span className="text-[10px] font-bold text-white uppercase tracking-tighter">
-                              {project.clips.length} Escenas
-                            </span>
-                          </div>
-                          <span className="text-[10px] font-medium text-gray-400 bg-black/60 px-2 py-0.5 rounded backdrop-blur-sm">
-                            {project.aspectRatio}
+                          <span className="text-[10px] font-bold text-white bg-black/50 backdrop-blur px-2 py-1 rounded border border-white/10 uppercase tracking-wider">
+                            {project.videoType}
+                          </span>
+                          <span className="text-[10px] text-gray-400">
+                            {project.clips.length} Shots
                           </span>
                         </div>
                       </div>
-
                       <div className="p-5 flex-1 flex flex-col justify-between space-y-4">
-                        <div className="space-y-1.5">
-                          <h4 className="text-white font-bold text-lg leading-tight group-hover:text-indigo-400 transition-colors line-clamp-2">
-                            {project.title}
-                          </h4>
-                          <div className="flex items-center gap-2 text-[10px] text-gray-500">
-                             <span className="bg-[#1f1f1f] px-1.5 py-0.5 rounded">ID: {project.directorId}</span>
-                             <span>•</span>
-                             <span>{project.createdAt?.toDate ? project.createdAt.toDate().toLocaleDateString('es-ES', { day: 'numeric', month: 'short' }) : 'Reciente'}</span>
+                        <div className="space-y-2">
+                          <div className="space-y-1">
+                            <h4 className="text-white font-semibold line-clamp-1">{project.title}</h4>
+                            <p className="text-[10px] text-gray-500">
+                              {project.createdAt?.toDate ? project.createdAt.toDate().toLocaleDateString() : 'Recently'}
+                            </p>
                           </div>
+                          {project.songDescription && (
+                            <p className="text-[10px] text-gray-400 line-clamp-2 bg-black/30 p-2 rounded leading-relaxed border border-white/5">
+                              {project.songDescription}
+                            </p>
+                          )}
                         </div>
-
-                        <div className="flex items-center gap-2 pt-2 border-t border-white/5">
+                        <div className="flex items-center gap-2">
                           <button 
                             onClick={() => loadProject(project)}
-                            className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-bold uppercase rounded-xl transition-all shadow-lg shadow-indigo-600/10 active:scale-95"
+                            className="flex-1 py-2 bg-[#1f1f1f] hover:bg-indigo-600 text-white text-xs font-medium rounded transition-colors"
                           >
-                            Cargar Proyecto
+                            Open Project
                           </button>
                           <button 
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              if(confirm('¿Estás seguro de que quieres eliminar este proyecto permanentemente?')) {
-                                deleteProject(project.id);
-                              }
-                            }}
-                            className="p-2.5 bg-[#1f1f1f] hover:bg-red-600/20 text-gray-500 hover:text-red-400 rounded-xl transition-all active:scale-90"
-                            title="Eliminar"
+                            onClick={() => deleteProject(project.id)}
+                            className="p-2 bg-[#1f1f1f] hover:bg-red-600/20 text-gray-500 hover:text-red-400 rounded transition-colors"
                           >
                             <X className="w-4 h-4" />
                           </button>
@@ -1350,28 +1284,6 @@ export default function App() {
                       <Sparkles className="w-8 h-8" style={{ color: '#6366f1' }} />
                       Creative Brief
                     </h2>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <button 
-                      onClick={saveProject}
-                      disabled={isSaving}
-                      className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-white text-sm font-medium transition-all shadow-lg flex items-center gap-2 disabled:opacity-50"
-                    >
-                      {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
-                      Guardar en My Projects
-                    </button>
-                    <button 
-                      onClick={() => {
-                        if (confirm('¿Estás seguro de que quieres empezar un nuevo proyecto? Volverás al inicio para configurar los nuevos parámetros.')) {
-                          localStorage.clear();
-                          window.location.reload();
-                        }
-                      }}
-                      className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-lg text-white text-sm font-medium transition-all shadow-lg flex items-center gap-2"
-                    >
-                      <Plus className="w-4 h-4" />
-                      Nuevo Proyecto
-                    </button>
                   </div>
                 </div>
 
