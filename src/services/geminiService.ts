@@ -214,18 +214,14 @@ Needed Duration: ${duration}s (approx ${numScenes} scenes)`;
   }
 }
 
-declare const puter: any;
-
 const IMAGE_MODEL = 'gemini-3.1-flash-image-preview';
 
-export async function generateAssetImage(prompt: string, aspectRatio: "1:1" | "3:4" | "4:3" | "9:16" | "16:9" = "1:1") {
+declare const puter: any;
+
+export async function generateAssetImage(prompt: string, _aspectRatio: "1:1" | "3:4" | "4:3" | "9:16" | "16:9" = "1:1") {
   try {
     if (typeof puter === 'undefined') {
-      console.warn("Puter.js not loaded. Falling back to placeholder.");
-      return { 
-        url: `https://placehold.co/800x800/141414/6366f1?text=PUTER+NOT+LOADED`,
-        thoughtSignature: undefined
-      };
+      throw new Error("Puter.js not loaded. Please ensure you are connected to the internet.");
     }
 
     const qualityModifiers = "hyper-realistic, cinematic, high-fidelity, professional cinematography, 8k resolution, meticulously detailed textures, no plastic image, natural light.";
@@ -246,20 +242,19 @@ export async function generateAssetImage(prompt: string, aspectRatio: "1:1" | "3
 
     return { url: null, thoughtSignature: undefined };
   } catch (error) {
-    console.error("Asset image generation failed with Puter:", error);
+    console.error("Asset image generation failed:", error);
     return { url: null, thoughtSignature: undefined };
   }
 }
 
 export async function generateSceneImage(
   prompt: string, 
-  aspectRatio: string, 
+  aspectRatio: "1:1" | "3:4" | "4:3" | "9:16" | "16:9" = "16:9",
   referenceAssets: {id: string, name: string, description: string, imageUrl: string, thoughtSignature?: string}[]
 ) {
   try {
     if (typeof puter === 'undefined') {
-      console.warn("Puter.js not loaded. Falling back to placeholder.");
-      return `https://placehold.co/1920x1080/141414/6366f1?text=PUTER+NOT+LOADED`;
+      throw new Error("Puter.js not loaded.");
     }
 
     // Enhance character consistency by prepending asset descriptions to the prompt
@@ -271,14 +266,13 @@ export async function generateSceneImage(
     }
 
     const qualityModifiers = "hyper-realistic, cinematic, high-fidelity, professional cinematography, meticulously detailed textures, no plastic image, consistent character design, natural textures.";
-    const enhancedPrompt = `${context}${prompt}. Visual quality: ${qualityModifiers}. Aspect Ratio: ${aspectRatio}. Ensure consistency with asset descriptions provided above.`;
+    const enhancedPrompt = `${context}${prompt}. Visual quality: ${qualityModifiers}. Ensure consistency with asset descriptions provided above.`;
 
     // If we have a primary reference asset with a thought signature, use it for follow-up turn
     const primaryAsset = referenceAssets.find(a => a.thoughtSignature && a.imageUrl);
 
     let result;
     if (primaryAsset) {
-      // Use the image refinement turn pattern (Multi-turn chat)
       result = await puter.ai.chat([
         { 
           role: "user", 
@@ -304,7 +298,6 @@ export async function generateSceneImage(
         image_config: { aspect_ratio: aspectRatio, image_size: "2K" },
       });
     } else {
-      // Standard single-turn for background or generic scenes
       result = await puter.ai.chat(enhancedPrompt, {
         model: IMAGE_MODEL,
         image_config: { aspect_ratio: aspectRatio, image_size: "2K" },
@@ -317,7 +310,7 @@ export async function generateSceneImage(
 
     return null;
   } catch (error) {
-    console.error("Scene image generation failed with Puter:", error);
+    console.error("Scene image generation failed:", error);
     return null;
   }
 }
