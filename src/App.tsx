@@ -115,6 +115,26 @@ type Project = {
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
+  const [installPrompt, setInstallPrompt] = useState<any>(null);
+
+  // PWA Install Logic
+  useEffect(() => {
+    const handler = (e: any) => {
+      e.preventDefault();
+      setInstallPrompt(e);
+    };
+    window.addEventListener('beforeinstallprompt', handler);
+    return () => window.removeEventListener('beforeinstallprompt', handler);
+  }, []);
+
+  const handleInstall = async () => {
+    if (!installPrompt) return;
+    installPrompt.prompt();
+    const { outcome } = await installPrompt.userChoice;
+    if (outcome === 'accepted') {
+      setInstallPrompt(null);
+    }
+  };
   const [puterUser, setPuterUser] = useState<any>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [isSaving, setIsSaving] = useState(false);
@@ -479,9 +499,10 @@ export default function App() {
         } else {
           setStatusMessage('Could not extract lyrics. You can enter them manually.');
         }
-      } catch (err) {
+      } catch (err: any) {
         console.error("Analysis process error:", err);
-        const errorMsg = err instanceof Error ? err.message : "Audio analysis failed.";
+        const isRateLimit = err?.message?.includes('429') || err?.status === 429 || (typeof err?.message === 'string' && err.message.toLowerCase().includes('quota'));
+        const errorMsg = isRateLimit ? "The AI is currently at capacity (Rate Limit). Please wait a minute and try again." : (err instanceof Error ? err.message : "Audio analysis failed.");
         setStatusMessage(`Error: ${errorMsg}. You can still enter details manually below.`);
       } finally {
         setIsTranscribing(false);
@@ -681,9 +702,14 @@ export default function App() {
         setCurrentStep('complete');
       }, 1000);
       
-    } catch (error) {
+    } catch (error: any) {
       console.error("Production failed:", error);
-      setStatusMessage('Error: AI Director encountered an issue. Progress saved.');
+      const isRateLimit = error?.message?.includes('429') || error?.status === 429 || (typeof error?.message === 'string' && error.message.toLowerCase().includes('quota'));
+      const errorMsg = isRateLimit 
+        ? 'AI capacity reached (Rate Limit). Retrying failed, saving progress...' 
+        : 'AI Director encountered an issue. Progress saved.';
+      
+      setStatusMessage(`Error: ${errorMsg}`);
       
       // Emergency Error Save (Save what we have)
       if (user && creativeBrief) {
@@ -794,6 +820,15 @@ export default function App() {
         </div>
         
         <div className="flex items-center gap-4">
+          {installPrompt && (
+            <button 
+              onClick={handleInstall}
+              className="hidden sm:flex items-center gap-2 px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-bold rounded shadow-lg transition-all uppercase tracking-tight animate-pulse"
+            >
+              <Download className="w-3 h-3" />
+              Install to Mac
+            </button>
+          )}
           {/* Puter Auth */}
           {puterUser ? (
             <div className="flex items-center gap-2 pr-4 border-r border-[#27272a]">
