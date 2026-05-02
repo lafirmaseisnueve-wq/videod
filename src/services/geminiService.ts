@@ -1,12 +1,13 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { DIRECTORS } from "../data/compendium";
 import { jsonrepair } from "jsonrepair";
+import geminiConfig from "../gemini-config.json";
 
 // Helper to get the latest API key safely
 function getAI() {
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = geminiConfig.geminiApiKey || process.env.GEMINI_API_KEY;
   if (!apiKey) {
-    throw new Error("GEMINI_API_KEY is not defined in the environment. Please ensure it is set in the Settings menu.");
+    throw new Error("GEMINI_API_KEY is not defined. Please provide it in src/gemini-config.json or set it in the environment.");
   }
   return new GoogleGenAI({ apiKey });
 }
