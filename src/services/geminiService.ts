@@ -12,14 +12,18 @@ function getAI() {
   return new GoogleGenAI({ apiKey });
 }
 
-async function withRetry<T>(fn: () => Promise<T>, maxRetries = 3, initialDelay = 2000): Promise<T> {
+async function withRetry<T>(fn: () => Promise<T>, maxRetries = 6, initialDelay = 15000): Promise<T> {
   let lastError: any;
   for (let i = 0; i <= maxRetries; i++) {
     try {
       return await fn();
     } catch (error: any) {
       lastError = error;
-      const isRateLimit = error?.message?.includes('429') || error?.status === 429 || error?.code === 429 || (typeof error?.message === 'string' && error.message.toLowerCase().includes('quota'));
+      const errorMessage = error?.message?.toLowerCase() || "";
+      const isRateLimit = error?.status === 429 || error?.code === 429 || 
+                         errorMessage.includes('429') || 
+                         errorMessage.includes('quota') || 
+                         errorMessage.includes('rate limit');
       
       if (isRateLimit && i < maxRetries) {
         const delay = initialDelay * Math.pow(2, i);
