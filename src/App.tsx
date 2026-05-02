@@ -8,6 +8,7 @@ import { DESPERTAR_DIGITAL_DATA } from './data/despertarDigital';
 import { generateStoryboard, generateSceneImage, generateAssetImage, transcribeAudio, suggestConcept, generateCustomStyle } from './services/geminiService';
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
+import { auth, db, loginWithGoogle, logout, onAuthStateChanged, type User, collection, doc, setDoc, getDoc, getDocs, query, where, orderBy, onSnapshot, Timestamp, deleteDoc, handleFirestoreError, OperationType } from './firebase';
 import StyleSelector from './components/StyleSelector';
 
 import puterConfig from './puter-config.json';
@@ -25,6 +26,20 @@ declare const puter: any;
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
+}
+
+// Helper to clean objects for Firestore (removes undefined, replaces with null or deletes)
+function cleanForFirestore(obj: any): any {
+  if (Array.isArray(obj)) {
+    return obj.map(v => cleanForFirestore(v));
+  } else if (obj !== null && typeof obj === 'object' && !(obj instanceof Timestamp)) {
+    return Object.fromEntries(
+      Object.entries(obj)
+        .filter(([_, v]) => v !== undefined)
+        .map(([k, v]) => [k, cleanForFirestore(v)])
+    );
+  }
+  return obj === undefined ? null : obj;
 }
 
 // Mock Data
@@ -89,8 +104,9 @@ type GenerationStep = 'upload' | 'analyze' | 'character' | 'storyboard' | 'gener
 
 type Project = {
   id: string;
+  userId: string;
   title: string;
-  createdAt: number;
+  createdAt: any;
   songDescription: string;
   directorId: string;
   videoType: string;
@@ -100,6 +116,7 @@ type Project = {
 };
 
 export default function App() {
+  const [user, setUser] = useState<User | null>(null);
   const [installPrompt, setInstallPrompt] = useState<any>(null);
 
   // PWA Install Logic
@@ -120,71 +137,10 @@ export default function App() {
       setInstallPrompt(null);
     }
   };
-
   const [puterUser, setPuterUser] = useState<any>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [isLoadingProjects, setIsLoadingProjects] = useState(false);
-
-  // Load projects from Puter FS or localStorage
-  useEffect(() => {
-    const loadProjectsData = async () => {
-      setIsLoadingProjects(true);
-      try {
-        if (typeof puter !== 'undefined' && await puter.auth.isSignedIn()) {
-          try {
-            const items = await puter.fs.read('projects.json');
-            const data = JSON.parse(items);
-            setProjects(data);
-            return;
-          } catch (e) {
-            console.log("No projects file found on Puter FS yet.");
-          }
-        }
-        // Fallback to localStorage
-        const saved = localStorage.getItem('ai_director_projects');
-        if (saved) setProjects(JSON.parse(saved));
-      } catch (error) {
-        console.error("Error loading projects:", error);
-      } finally {
-        setIsLoadingProjects(false);
-      }
-    };
-    loadProjectsData();
-  }, [puterUser]);
-
-  // Persistent save helper
-  const saveProjectsToStorage = async (updatedProjects: Project[]) => {
-    setProjects(updatedProjects);
-    
-    // 1. Try to save to localStorage
-    try {
-      localStorage.setItem('ai_director_projects', JSON.stringify(updatedProjects));
-    } catch (e: any) {
-      if (e.name === 'QuotaExceededError' || e.name === 'NS_ERROR_DOM_QUOTA_REACHED' || e.code === 22) {
-        console.warn("Local storage full, attempting to prune cache...");
-        try {
-          // Keep only the 10 most recent projects in localStorage cache
-          const pruned = updatedProjects.slice(0, 10);
-          localStorage.setItem('ai_director_projects', JSON.stringify(pruned));
-        } catch (innerError) {
-          console.error("Even pruned storage failed. Falling back to memory/cloud only.", innerError);
-          // Don't crash, the user can still use the app
-        }
-      } else {
-        console.error("Storage error:", e);
-      }
-    }
-    
-    // 2. Save to Puter FS (Primary Persistent Storage)
-    if (typeof puter !== 'undefined' && await puter.auth.isSignedIn()) {
-      try {
-        await puter.fs.write('projects.json', JSON.stringify(updatedProjects, null, 2));
-      } catch (e) {
-        console.error("Failed to save to Puter FS:", e);
-      }
-    }
-  };
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -277,26 +233,32 @@ export default function App() {
   }, [currentStep, audioFile]);
 
   // Persistent Storage Effect
-  // State persistence (Auto-save)
   useEffect(() => {
-    try {
-      localStorage.setItem('ai_director_step', currentStep);
-      localStorage.setItem('ai_director_selected_director', selectedDirector);
-      localStorage.setItem('ai_director_song_desc', songDescription);
-      localStorage.setItem('ai_director_video_concept', videoConcept);
-      localStorage.setItem('ai_director_num_chars', numCharacters.toString());
-      localStorage.setItem('ai_director_video_type', videoType);
-      localStorage.setItem('ai_director_aspect_ratio', aspectRatio);
-      localStorage.setItem('ai_director_manual_dur', manualDuration);
-      localStorage.setItem('ai_director_clips', JSON.stringify(clips));
-      localStorage.setItem('ai_director_brief', JSON.stringify(creativeBrief));
-    } catch (e) {
-      console.warn("Auto-save to localStorage failed (possibly full):", e);
-    }
+    localStorage.setItem('ai_director_step', currentStep);
+    localStorage.setItem('ai_director_selected_director', selectedDirector);
+    localStorage.setItem('ai_director_song_desc', songDescription);
+    localStorage.setItem('ai_director_video_concept', videoConcept);
+    localStorage.setItem('ai_director_num_chars', numCharacters.toString());
+    localStorage.setItem('ai_director_video_type', videoType);
+    localStorage.setItem('ai_director_aspect_ratio', aspectRatio);
+    localStorage.setItem('ai_director_manual_dur', manualDuration);
+    localStorage.setItem('ai_director_clips', JSON.stringify(clips));
+    localStorage.setItem('ai_director_brief', JSON.stringify(creativeBrief));
   }, [currentStep, selectedDirector, songDescription, videoConcept, numCharacters, videoType, aspectRatio, manualDuration, clips, creativeBrief]);
 
-  // Auth Listener (Puter Only)
+  // Auth Listener
   useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      setUser(user);
+      if (user) {
+        fetchProjects(user.uid);
+        syncUserProfile(user);
+      } else {
+        setProjects([]);
+      }
+    });
+
+    // Puter Auth Check
     if (typeof puter !== 'undefined') {
       const checkPuterAuth = async () => {
         try {
@@ -305,8 +267,11 @@ export default function App() {
             const pUser = await puter.auth.getUser();
             setPuterUser(pUser);
           } else if (puterConfig.allowAutoLogin) {
+            // Note: Proactive signIn() may be blocked by pop-up blockers
+            // but we check for it as an 'autologin' intent
             console.log("Puter autologin attempt...");
             try {
+              // Only attempt if not already in a login process
               const pUser = await puter.auth.getUser();
               if (pUser) setPuterUser(pUser);
             } catch (e) {
@@ -320,6 +285,8 @@ export default function App() {
       };
       checkPuterAuth();
     }
+
+    return () => unsubscribe();
   }, []);
 
   const handlePuterSignIn = async () => {
@@ -338,19 +305,84 @@ export default function App() {
     setPuterUser(null);
   };
 
+  const syncUserProfile = async (user: User) => {
+    try {
+      const userRef = doc(db, 'users', user.uid);
+      const userDoc = await getDoc(userRef);
+      
+      if (!userDoc.exists()) {
+        await setDoc(userRef, cleanForFirestore({
+          uid: user.uid,
+          email: user.email,
+          displayName: user.displayName,
+          photoURL: user.photoURL,
+          createdAt: Timestamp.now(),
+          updatedAt: Timestamp.now()
+        }));
+      } else {
+        await setDoc(userRef, cleanForFirestore({
+          displayName: user.displayName,
+          photoURL: user.photoURL,
+          updatedAt: Timestamp.now()
+        }), { merge: true });
+      }
+    } catch (error) {
+      console.error("Error syncing user profile:", error);
+    }
+  };
+
+  const fetchProjects = async (uid: string) => {
+    if (!uid) return;
+    setIsLoadingProjects(true);
+    console.log("Fetching projects for user:", uid);
+    
+    // We remove the orderBy temporarily to ensure projects show up even if the index isn't ready
+    const q = query(
+      collection(db, 'projects'),
+      where('userId', '==', uid)
+    );
+
+    try {
+      const querySnapshot = await getDocs(q);
+      const loadedProjects: Project[] = [];
+      querySnapshot.forEach((doc) => {
+        const data = doc.data();
+        loadedProjects.push({ id: doc.id, ...data } as Project);
+      });
+      
+      // Sort manually in memory if orderBy is disabled
+      const sortedProjects = loadedProjects.sort((a: any, b: any) => {
+        const dateA = a.createdAt?.seconds || 0;
+        const dateB = b.createdAt?.seconds || 0;
+        return dateB - dateA;
+      });
+      
+      console.log("Loaded projects:", sortedProjects.length);
+      setProjects(sortedProjects);
+    } catch (error) {
+      console.error("Error fetching projects:", error);
+      // If it's a permission error or index error, we'll see it in console
+    } finally {
+      setIsLoadingProjects(false);
+    }
+  };
+
   const handleOpenProjects = () => {
+    if (user) {
+      fetchProjects(user.uid);
+    }
     setCurrentStep('projects');
   };
 
   const saveProject = async () => {
-    if (!creativeBrief || clips.length === 0) return;
+    if (!user || !creativeBrief || clips.length === 0) return;
 
     setIsSaving(true);
     const projectId = creativeBrief.projectOverview.title.toLowerCase().replace(/\s+/g, '-') + '-' + Date.now();
-    const newProject: Project = {
-      id: projectId,
+    const projectData: Omit<Project, 'id'> = {
+      userId: user.uid,
       title: creativeBrief.projectOverview.title,
-      createdAt: Date.now(),
+      createdAt: Timestamp.now(),
       songDescription,
       directorId: selectedDirector,
       videoType,
@@ -360,23 +392,23 @@ export default function App() {
     };
 
     try {
-      const updatedProjects = [newProject, ...projects.filter(p => p.id !== projectId)];
-      await saveProjectsToStorage(updatedProjects);
-      setStatusMessage('Project saved to storage.');
+      await setDoc(doc(db, 'projects', projectId), cleanForFirestore(projectData));
+      setStatusMessage('Project saved to database.');
+      fetchProjects(user.uid);
     } catch (error) {
-      console.error("Error saving project:", error);
-      setStatusMessage('Error saving project.');
+      handleFirestoreError(error, OperationType.WRITE, `projects/${projectId}`);
     } finally {
       setIsSaving(false);
     }
   };
 
   const deleteProject = async (projectId: string) => {
+    if (!user) return;
     try {
-      const updatedProjects = projects.filter(p => p.id !== projectId);
-      await saveProjectsToStorage(updatedProjects);
+      await deleteDoc(doc(db, 'projects', projectId));
+      setProjects(prev => prev.filter(p => p.id !== projectId));
     } catch (error) {
-      console.error("Error deleting project:", error);
+      handleFirestoreError(error, OperationType.DELETE, `projects/${projectId}`);
     }
   };
 
@@ -551,27 +583,24 @@ export default function App() {
       
       const projectId = response.creativeBrief.projectOverview.title.toLowerCase().replace(/\s+/g, '-') + '-' + Date.now();
       
-      // Initial Save (Disabled)
-      /*
-      const initialProject: Project = {
-        id: projectId,
-        title: response.creativeBrief.projectOverview.title,
-        createdAt: Date.now(),
-        songDescription,
-        directorId: selectedDirector,
-        videoType,
-        aspectRatio,
-        creativeBrief: response.creativeBrief,
-        clips: []
-      };
-      
-      try {
-        const updatedProjects = [initialProject, ...projects];
-        await saveProjectsToStorage(updatedProjects);
-      } catch (e) {
-        console.error("Initial save failed", e);
+      // Initial Save after Storyboard
+      if (user) {
+        const initialProject: Omit<Project, 'id'> = {
+          userId: user.uid,
+          title: response.creativeBrief.projectOverview.title,
+          createdAt: Timestamp.now(),
+          songDescription,
+          directorId: selectedDirector,
+          videoType,
+          aspectRatio,
+          creativeBrief: response.creativeBrief,
+          clips: []
+        };
+        try {
+          await setDoc(doc(db, 'projects', projectId), cleanForFirestore(initialProject));
+          fetchProjects(user.uid);
+        } catch (e) { console.error("Initial save failed", e); }
       }
-      */
 
       setCurrentStep('storyboard');
       setGenerationProgress(40);
@@ -667,29 +696,25 @@ export default function App() {
       
       setClips(finalClips);
       
-      // Final Auto-Save (Disabled)
-      /*
-      if (creativeBrief) {
-        const finalProject: Project = {
-          id: projectId,
-          title: creativeBrief.projectOverview.title,
-          createdAt: Date.now(),
+      // Final Auto-Save
+      if (user && response.creativeBrief) {
+        const finalProject: Omit<Project, 'id'> = {
+          userId: user.uid,
+          title: response.creativeBrief.projectOverview.title,
+          createdAt: Timestamp.now(),
           songDescription,
           directorId: selectedDirector,
           videoType,
           aspectRatio,
-          creativeBrief: { ...creativeBrief, referenceAssets: updatedAssets },
+          creativeBrief: { ...response.creativeBrief, referenceAssets: updatedAssets },
           clips: finalClips
         };
         try {
-          const updatedProjects = [finalProject, ...projects.filter(p => p.id !== projectId)];
-          await saveProjectsToStorage(updatedProjects);
-        } catch (e) {
-          console.error("Final auto-save failed", e);
-        }
+          await setDoc(doc(db, 'projects', projectId), cleanForFirestore(finalProject));
+          fetchProjects(user.uid);
+        } catch (e) { console.error("Final save failed", e); }
       }
-      */
-      
+
       // 4. Final Assembly
       setGenerationProgress(100);
       setStatusMessage('Production Complete.');
@@ -707,6 +732,31 @@ export default function App() {
       
       setStatusMessage(`Error: ${errorMsg}`);
       
+      // Emergency Error Save (Save what we have)
+      if (user && creativeBrief) {
+        // We need the projectId here. Since it was defined in the try block, 
+        // I should have defined it outside. Let's fix that in next edit if needed,
+        // but for now I'll just try to save with a fallback ID if it's missing.
+        const fallbackId = `error-${Date.now()}`;
+        const errorProject: any = {
+          userId: user.uid,
+          title: creativeBrief?.projectOverview?.title || 'Recovered Project',
+          createdAt: Timestamp.now(),
+          songDescription,
+          directorId: selectedDirector,
+          videoType,
+          aspectRatio,
+          creativeBrief: creativeBrief,
+          clips: clips,
+          isErrorState: true
+        };
+        try {
+          // Use a special ID or the known one if possible
+          await setDoc(doc(db, 'projects', fallbackId), cleanForFirestore(errorProject));
+          fetchProjects(user.uid);
+        } catch (e) { console.error("Emergency save failed", e); }
+      }
+
       setTimeout(() => setCurrentStep('complete'), 3000);
     }
   };
@@ -824,43 +874,54 @@ export default function App() {
             </button>
           )}
 
-          <div className="flex items-center gap-3">
-            <button 
-              onClick={handleOpenProjects}
-              className="text-xs text-gray-400 hover:text-white transition-colors"
-            >
-              My Projects
-            </button>
-            <button 
-              onClick={() => {
-                if (confirm('Are you sure you want to start a new project? Unsaved changes will be lost.')) {
-                  localStorage.removeItem('ai_director_projects'); // Optional: clear current progress
-                  window.location.reload();
-                }
-              }}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-red-900/30 hover:bg-red-800/50 border border-red-700/50 rounded-full text-red-200 text-xs font-medium transition-all"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              New Project
-            </button>
-            <div className="h-4 w-px bg-gray-700 mx-1"></div>
-            
-            {currentStep === 'complete' && (
+          {user ? (
+            <div className="flex items-center gap-3">
               <button 
-                onClick={saveProject}
-                disabled={isSaving}
-                className="flex items-center gap-2 px-3 py-1.5 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 text-xs font-medium rounded border border-emerald-600/30 transition-all disabled:opacity-50"
+                onClick={handleOpenProjects}
+                className="text-xs text-gray-400 hover:text-white transition-colors"
               >
-                {isSaving ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle2 className="w-3 h-3" />}
-                Save Project
+                My Projects
               </button>
-            )}
+              <button 
+                onClick={() => {
+                  if (confirm('¿Estás seguro de que quieres empezar un nuevo proyecto? Serás redirigido al principio de la aplicación y se borrará el progreso actual que no hayas guardado en Firebase.')) {
+                    localStorage.clear();
+                    window.location.reload();
+                  }
+                }}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-red-900/30 hover:bg-red-800/50 border border-red-700/50 rounded-full text-red-200 text-xs font-medium transition-all"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                Nuevo Proyecto
+              </button>
+              <div className="h-4 w-px bg-gray-700 mx-1"></div>
+              
+              {currentStep === 'complete' && (
+                <button 
+                  onClick={saveProject}
+                  disabled={isSaving}
+                  className="flex items-center gap-2 px-3 py-1.5 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 text-xs font-medium rounded border border-emerald-600/30 transition-all disabled:opacity-50"
+                >
+                  {isSaving ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle2 className="w-3 h-3" />}
+                  Save Project
+                </button>
+              )}
 
-            <div className="flex items-center gap-1.5 px-3 py-1 bg-indigo-500/10 border border-indigo-500/20 rounded-full ml-2">
-              <div className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse" />
-              <span className="text-[10px] font-bold text-indigo-400 uppercase tracking-tight">System Ready</span>
+              <div className="h-4 w-px bg-gray-800 mx-1" />
+              
+              <div className="flex items-center gap-2">
+                <img src={user.photoURL || ''} alt="" className="w-6 h-6 rounded-full border border-gray-700" />
+                <button onClick={logout} className="text-xs text-gray-500 hover:text-red-400 transition-colors">Logout</button>
+              </div>
             </div>
-          </div>
+          ) : (
+            <button 
+              onClick={loginWithGoogle}
+              className="flex items-center gap-2 px-4 py-1.5 bg-white text-black text-xs font-bold rounded hover:bg-gray-200 transition-colors"
+            >
+              Login with Google
+            </button>
+          )}
 
           {currentStep === 'complete' && (
             <div className="flex items-center gap-2">

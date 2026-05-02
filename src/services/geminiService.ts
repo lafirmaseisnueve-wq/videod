@@ -1,29 +1,24 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { DIRECTORS } from "../data/compendium";
 import { jsonrepair } from "jsonrepair";
-import geminiConfig from "../gemini-config.json";
 
 // Helper to get the latest API key safely
 function getAI() {
-  const apiKey = geminiConfig.geminiApiKey || process.env.GEMINI_API_KEY;
+  const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
-    throw new Error("GEMINI_API_KEY is not defined. Please provide it in src/gemini-config.json or set it in the environment.");
+    throw new Error("GEMINI_API_KEY is not defined in the environment. Please ensure it is set in the Settings menu.");
   }
   return new GoogleGenAI({ apiKey });
 }
 
-async function withRetry<T>(fn: () => Promise<T>, maxRetries = 6, initialDelay = 3000): Promise<T> {
+async function withRetry<T>(fn: () => Promise<T>, maxRetries = 3, initialDelay = 2000): Promise<T> {
   let lastError: any;
   for (let i = 0; i <= maxRetries; i++) {
     try {
       return await fn();
     } catch (error: any) {
       lastError = error;
-      const errorMessage = error?.message?.toLowerCase() || "";
-      const isRateLimit = error?.status === 429 || error?.code === 429 || 
-                         errorMessage.includes('429') || 
-                         errorMessage.includes('quota') || 
-                         errorMessage.includes('rate limit');
+      const isRateLimit = error?.message?.includes('429') || error?.status === 429 || error?.code === 429 || (typeof error?.message === 'string' && error.message.toLowerCase().includes('quota'));
       
       if (isRateLimit && i < maxRetries) {
         const delay = initialDelay * Math.pow(2, i);
