@@ -12,7 +12,7 @@ function getAI() {
   return new GoogleGenAI({ apiKey });
 }
 
-async function withRetry<T>(fn: () => Promise<T>, maxRetries = 6, initialDelay = 15000): Promise<T> {
+async function withRetry<T>(fn: () => Promise<T>, maxRetries = 6, initialDelay = 3000): Promise<T> {
   let lastError: any;
   for (let i = 0; i <= maxRetries; i++) {
     try {

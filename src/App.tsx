@@ -156,8 +156,27 @@ export default function App() {
   // Persistent save helper
   const saveProjectsToStorage = async (updatedProjects: Project[]) => {
     setProjects(updatedProjects);
-    localStorage.setItem('ai_director_projects', JSON.stringify(updatedProjects));
     
+    // 1. Try to save to localStorage
+    try {
+      localStorage.setItem('ai_director_projects', JSON.stringify(updatedProjects));
+    } catch (e: any) {
+      if (e.name === 'QuotaExceededError' || e.name === 'NS_ERROR_DOM_QUOTA_REACHED' || e.code === 22) {
+        console.warn("Local storage full, attempting to prune cache...");
+        try {
+          // Keep only the 10 most recent projects in localStorage cache
+          const pruned = updatedProjects.slice(0, 10);
+          localStorage.setItem('ai_director_projects', JSON.stringify(pruned));
+        } catch (innerError) {
+          console.error("Even pruned storage failed. Falling back to memory/cloud only.", innerError);
+          // Don't crash, the user can still use the app
+        }
+      } else {
+        console.error("Storage error:", e);
+      }
+    }
+    
+    // 2. Save to Puter FS (Primary Persistent Storage)
     if (typeof puter !== 'undefined' && await puter.auth.isSignedIn()) {
       try {
         await puter.fs.write('projects.json', JSON.stringify(updatedProjects, null, 2));
@@ -258,17 +277,22 @@ export default function App() {
   }, [currentStep, audioFile]);
 
   // Persistent Storage Effect
+  // State persistence (Auto-save)
   useEffect(() => {
-    localStorage.setItem('ai_director_step', currentStep);
-    localStorage.setItem('ai_director_selected_director', selectedDirector);
-    localStorage.setItem('ai_director_song_desc', songDescription);
-    localStorage.setItem('ai_director_video_concept', videoConcept);
-    localStorage.setItem('ai_director_num_chars', numCharacters.toString());
-    localStorage.setItem('ai_director_video_type', videoType);
-    localStorage.setItem('ai_director_aspect_ratio', aspectRatio);
-    localStorage.setItem('ai_director_manual_dur', manualDuration);
-    localStorage.setItem('ai_director_clips', JSON.stringify(clips));
-    localStorage.setItem('ai_director_brief', JSON.stringify(creativeBrief));
+    try {
+      localStorage.setItem('ai_director_step', currentStep);
+      localStorage.setItem('ai_director_selected_director', selectedDirector);
+      localStorage.setItem('ai_director_song_desc', songDescription);
+      localStorage.setItem('ai_director_video_concept', videoConcept);
+      localStorage.setItem('ai_director_num_chars', numCharacters.toString());
+      localStorage.setItem('ai_director_video_type', videoType);
+      localStorage.setItem('ai_director_aspect_ratio', aspectRatio);
+      localStorage.setItem('ai_director_manual_dur', manualDuration);
+      localStorage.setItem('ai_director_clips', JSON.stringify(clips));
+      localStorage.setItem('ai_director_brief', JSON.stringify(creativeBrief));
+    } catch (e) {
+      console.warn("Auto-save to localStorage failed (possibly full):", e);
+    }
   }, [currentStep, selectedDirector, songDescription, videoConcept, numCharacters, videoType, aspectRatio, manualDuration, clips, creativeBrief]);
 
   // Auth Listener (Puter Only)
@@ -527,7 +551,8 @@ export default function App() {
       
       const projectId = response.creativeBrief.projectOverview.title.toLowerCase().replace(/\s+/g, '-') + '-' + Date.now();
       
-      // Initial Save after Storyboard
+      // Initial Save (Disabled)
+      /*
       const initialProject: Project = {
         id: projectId,
         title: response.creativeBrief.projectOverview.title,
@@ -546,6 +571,7 @@ export default function App() {
       } catch (e) {
         console.error("Initial save failed", e);
       }
+      */
 
       setCurrentStep('storyboard');
       setGenerationProgress(40);
@@ -641,7 +667,8 @@ export default function App() {
       
       setClips(finalClips);
       
-      // Final Auto-Save
+      // Final Auto-Save (Disabled)
+      /*
       if (creativeBrief) {
         const finalProject: Project = {
           id: projectId,
@@ -661,6 +688,7 @@ export default function App() {
           console.error("Final auto-save failed", e);
         }
       }
+      */
       
       // 4. Final Assembly
       setGenerationProgress(100);
